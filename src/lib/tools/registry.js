@@ -1,77 +1,26 @@
-import { z } from "zod"
-import { upsertMemory } from "@/lib/db/memory"
+/**
+ * Tool Registry
+ *
+ * This file aggregates all tool modules from the domain folders and exposes
+ * the runtime API. It contains no tool implementation logic.
+ */
 
-function toJsonSchema(shape, required = []) {
-  return {
-    type: "object",
-    properties: shape,
-    required,
-    additionalProperties: false,
-  }
-}
+import { tools as systemTimeTools } from "./system/time.tool.js"
+import { tools as systemMemoryTools } from "./system/memory.tool.js"
+import { tools as smartHomeLampTools } from "./smart-home/lamp.tool.js"
 
+/**
+ * All tools available to the agent.
+ */
 export const tools = [
-  {
-    name: "get_current_time",
-    description: "Get the current server time and timezone.",
-    parameters: toJsonSchema({
-      label: {
-        type: "string",
-        description: "Optional human label for why the time is being requested.",
-      },
-    }),
-    schema: z.object({
-      label: z.string().optional(),
-    }),
-    async execute(args) {
-      return {
-        label: args.label || "server_time",
-        iso: new Date().toISOString(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      }
-    },
-  },
-  {
-    name: "save_memory",
-    description: "Save a durable memory about the user, project, preferences, or environment.",
-    parameters: toJsonSchema(
-      {
-        content: {
-          type: "string",
-          description: "The memory content to save.",
-        },
-        tags: {
-          type: "array",
-          items: { type: "string" },
-          description: "Short labels for the memory.",
-        },
-        importance: {
-          type: "number",
-          description: "Importance from 0 to 1.",
-        },
-      },
-      ["content"]
-    ),
-    schema: z.object({
-      content: z.string().min(1),
-      tags: z.array(z.string()).optional(),
-      importance: z.number().min(0).max(1).optional(),
-    }),
-    async execute(args) {
-      const memory = await upsertMemory({
-        content: args.content,
-        tags: args.tags || [],
-        importance: args.importance ?? 0.5,
-      })
-
-      return {
-        saved: Boolean(memory),
-        memory,
-      }
-    },
-  },
+  ...systemTimeTools,
+  ...systemMemoryTools,
+  ...smartHomeLampTools,
 ]
 
+/**
+ * Formats tools for the OpenAI API `tools` parameter.
+ */
 export function getOpenAITools() {
   return tools.map((tool) => ({
     type: "function",
@@ -81,11 +30,14 @@ export function getOpenAITools() {
   }))
 }
 
+/**
+ * Finds and executes a tool by name after validating its arguments via Zod.
+ */
 export async function runTool(name, rawArgs = {}) {
-  const tool = tools.find((candidate) => candidate.name === name)
+  const tool = tools.find((t) => t.name === name)
 
   if (!tool) {
-    throw new Error(`Unknown tool: ${name}`)
+    throw new Error(`Unknown tool: "${name}"`)
   }
 
   const args = tool.schema.parse(rawArgs)

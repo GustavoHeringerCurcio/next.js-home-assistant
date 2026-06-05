@@ -8,11 +8,14 @@ import {
   Square,
   Volume2,
   VolumeX,
+  Sparkles
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { SidebarTrigger } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
 
 const conversationId =
@@ -23,7 +26,7 @@ const conversationId =
 const initialMessages = [
   {
     role: "assistant",
-    content: "I am ready. You can type or speak to me.",
+    content: "Hi! I'm your Tuya Custom Agent. How can I help you control your home today?",
   },
 ]
 
@@ -157,125 +160,148 @@ export function AgentConsole() {
   }
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-4 sm:px-6 lg:px-8">
-        <header className="flex min-h-14 items-center justify-between gap-4 border-b">
-          <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-md border bg-background">
-              <Bot className="size-4" />
-            </div>
-            <div>
-              <h1 className="text-base font-semibold leading-none">Tuya Custom Agent</h1>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Local chatbot and talkbot with memory
-              </p>
-            </div>
-          </div>
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-background">
+      {/* Premium Sticky Header */}
+      <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 backdrop-blur-md px-6 shrink-0">
+        <div className="flex items-center gap-3">
+          <SidebarTrigger className="-ml-1 text-foreground/80 hover:text-foreground" />
+          <div className="h-4 w-[1px] bg-border" />
           <div className="flex items-center gap-2">
-            <span className="hidden rounded-md border px-2 py-1 text-xs text-muted-foreground sm:inline-flex">
-              gpt-5-nano
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              aria-label={voiceOutput ? "Disable voice output" : "Enable voice output"}
-              title={voiceOutput ? "Disable voice output" : "Enable voice output"}
-              onClick={() => setVoiceOutput((value) => !value)}
-            >
-              {voiceOutput ? <Volume2 /> : <VolumeX />}
-            </Button>
+            <h1 className="text-sm font-semibold text-foreground">Tuya Agent Console</h1>
+            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="System Ready" />
           </div>
-        </header>
+        </div>
 
-        <div className="flex min-h-0 flex-1 justify-center py-4">
-          <section className="flex min-h-[620px] w-full max-w-4xl flex-col rounded-md border bg-background">
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div>
-                <h2 className="text-sm font-medium">Conversation</h2>
-                <p className="text-xs text-muted-foreground">
-                  Type or speak naturally.
-                </p>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/60 dark:bg-muted/30 rounded-full px-3 py-1 border border-border">
+            <span>Voice output</span>
+            <Switch
+              checked={voiceOutput}
+              onCheckedChange={setVoiceOutput}
+              className="scale-75 origin-right"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="rounded-full size-8 text-foreground/70 hover:text-foreground"
+            aria-label={voiceOutput ? "Disable voice output" : "Enable voice output"}
+            title={voiceOutput ? "Disable voice output" : "Enable voice output"}
+            onClick={() => setVoiceOutput((value) => !value)}
+          >
+            {voiceOutput ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+          </Button>
+        </div>
+      </header>
+
+      {/* Message Area */}
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="max-w-3xl mx-auto w-full px-4 py-8 flex flex-col gap-6">
+          {messages.map((message, index) => (
+            <div
+              key={`${message.role}-${index}`}
+              className={cn(
+                "flex gap-4 w-full",
+                message.role === "user" ? "justify-end" : "justify-start"
+              )}
+            >
+              {message.role !== "user" && (
+                <Avatar className="size-8 shrink-0 border bg-muted flex items-center justify-center">
+                  <Bot className="size-4 text-primary" />
+                </Avatar>
+              )}
+              
+              <div
+                className={cn(
+                  "flex flex-col max-w-[80%]",
+                  message.role === "user" ? "items-end" : "items-start"
+                )}
+              >
+                <div
+                  className={cn(
+                    "text-sm leading-relaxed whitespace-pre-wrap transition-all duration-200",
+                    message.role === "user"
+                      ? "bg-muted text-foreground rounded-2xl px-4 py-2.5 rounded-tr-none shadow-xs border border-border"
+                      : "text-foreground pt-1",
+                    message.error && "text-destructive font-medium border border-destructive/20 rounded-xl p-3 bg-destructive/5"
+                  )}
+                >
+                  {message.content}
+                </div>
+                {message.role === "assistant" && message.model && (
+                  <span className="text-[10px] text-muted-foreground/60 mt-1 select-none flex items-center gap-1">
+                    <Sparkles className="size-2.5 text-primary" />
+                    Generated by {message.model}
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>Voice output</span>
-                <Switch checked={voiceOutput} onCheckedChange={setVoiceOutput} />
+
+              {message.role === "user" && (
+                <Avatar className="size-8 shrink-0 border bg-primary/10 text-primary flex items-center justify-center">
+                  <AvatarFallback className="bg-transparent text-primary text-xs font-semibold">
+                    U
+                  </AvatarFallback>
+                </Avatar>
+              )}
+            </div>
+          ))}
+          <div ref={bottomRef} className="h-4" />
+        </div>
+      </ScrollArea>
+
+      {/* Gemini-style Pill Input Area */}
+      <div className="w-full bg-gradient-to-t from-background via-background/95 to-transparent shrink-0">
+        <div className="max-w-3xl mx-auto px-4 pb-6 pt-2">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              sendMessage()
+            }}
+          >
+            <div className="relative flex items-end w-full bg-muted/40 focus-within:bg-background border border-border focus-within:border-ring rounded-[2rem] pl-4 pr-2 py-1.5 shadow-xs transition-all duration-200">
+              <Textarea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Ask anything..."
+                className="flex-1 min-h-[40px] max-h-[160px] resize-none border-0 bg-transparent py-2.5 focus-visible:ring-0 focus-visible:ring-offset-0 text-sm shadow-none outline-none"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault()
+                    sendMessage()
+                  }
+                }}
+              />
+              <div className="flex items-center gap-1.5 ml-2 shrink-0 mb-0.5">
+                <Button
+                  type="button"
+                  variant={isListening ? "default" : "ghost"}
+                  size="icon"
+                  className="rounded-full size-9 text-foreground/75"
+                  aria-label={isListening ? "Stop voice input" : "Start voice input"}
+                  title={isListening ? "Stop voice input" : "Start voice input"}
+                  onClick={toggleListening}
+                >
+                  {isListening ? <Square className="size-4 animate-pulse" /> : <Mic className="size-4" />}
+                </Button>
+                <Button
+                  type="submit"
+                  size="icon"
+                  className="rounded-full size-9"
+                  aria-label="Send message"
+                  title="Send message"
+                  disabled={isSending || !input.trim()}
+                >
+                  <Send className="size-4" />
+                </Button>
               </div>
             </div>
-
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="space-y-4 p-4">
-                {messages.map((message, index) => (
-                  <div
-                    key={`${message.role}-${index}`}
-                    className={cn(
-                      "flex",
-                      message.role === "user" ? "justify-end" : "justify-start"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "max-w-[82%] rounded-md border px-3 py-2 text-sm leading-6",
-                        message.role === "user"
-                          ? "bg-foreground text-background"
-                          : "bg-background",
-                        message.error && "border-destructive/40 text-destructive"
-                      )}
-                    >
-                      <div className="whitespace-pre-wrap">{message.content}</div>
-                    </div>
-                  </div>
-                ))}
-                <div ref={bottomRef} />
-              </div>
-            </ScrollArea>
-
-            <form
-              className="border-t p-3"
-              onSubmit={(event) => {
-                event.preventDefault()
-                sendMessage()
-              }}
-            >
-              <div className="flex gap-2">
-                <Textarea
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  placeholder="Ask anything..."
-                  className="min-h-11 resize-none rounded-md"
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault()
-                      sendMessage()
-                    }
-                  }}
-                />
-                <div className="flex flex-col gap-2">
-                  <Button
-                    type="button"
-                    variant={isListening ? "default" : "outline"}
-                    size="icon"
-                    aria-label={isListening ? "Stop voice input" : "Start voice input"}
-                    title={isListening ? "Stop voice input" : "Start voice input"}
-                    onClick={toggleListening}
-                  >
-                    {isListening ? <Square /> : <Mic />}
-                  </Button>
-                  <Button
-                    type="submit"
-                    size="icon"
-                    aria-label="Send message"
-                    title="Send message"
-                    disabled={isSending || !input.trim()}
-                  >
-                    <Send />
-                  </Button>
-                </div>
-              </div>
-            </form>
-          </section>
+          </form>
+          <div className="text-[10px] text-center text-muted-foreground/60 mt-2">
+            Tuya Custom Agent may control physical devices. Monitor your devices for safety.
+          </div>
         </div>
       </div>
-    </main>
+    </div>
   )
 }

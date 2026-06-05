@@ -1,7 +1,7 @@
 import OpenAI from "openai"
 import { AGENT_CONFIG, SYSTEM_PROMPT, hasOpenAIKey } from "@/lib/config"
 import { getRelevantMemories, saveMessage } from "@/lib/db/memory"
-import { getOpenAITools, runTool } from "@/lib/tools/registry"
+import { getOpenAITools, runTool } from "@/lib/tools"
 
 function normalizeMessages(messages = []) {
   return messages
