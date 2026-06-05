@@ -25,6 +25,8 @@ const pctToTuya = (pct) => Math.round((pct / 100) * 990 + 10)
 /** Maps Tuya internal brightness (10–1000) → user-facing percentage (1–100). */
 const tuyaToPct = (raw) => Math.round(((raw - 10) / 990) * 100)
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 // ─── Tool: control_wifi_lamp ──────────────────────────────────────────────────
 
 /**
@@ -106,36 +108,117 @@ const controlWifiLamp = {
       }
     }
 
-    const commands = []
-
-    if (args.action != null) {
-      commands.push({ code: "switch_led", value: args.action === "on" })
-    }
-
-    if (args.brightness != null) {
-      commands.push({ code: "bright_value_v2", value: pctToTuya(args.brightness) })
-    }
-
-    if (args.color) {
-      commands.push({ code: "work_mode", value: "colour" })
-      commands.push({
-        code: "colour_data_v2",
-        value: JSON.stringify({
-          h: Math.round(args.color.hue),
-          s: Math.round((args.color.saturation / 100) * 1000),
-          v: Math.round((args.color.value / 100) * 1000),
-        }),
-      })
-    }
-
-    let result
+    // 1. Fetch current status of the device to perform state-aware sequential control
+    let currentStatus = null
     try {
-      result = await sendDeviceCommands(deviceId, commands)
+      const statusRes = await getDeviceStatus(deviceId)
+      if (isTuyaSuccess(statusRes) && Array.isArray(statusRes.result)) {
+        currentStatus = statusRes.result
+      }
+    } catch (err) {
+      console.warn("Failed to fetch device status for sequential control:", err)
+    }
+
+    const getDp = (code) => currentStatus?.find((d) => d.code === code)?.value
+
+    const currentPower = currentStatus ? getDp("switch_led") : null
+    const currentMode = currentStatus ? getDp("work_mode") : null
+
+    const preCommands = []
+    const postCommands = []
+
+    if (args.action === "off") {
+      preCommands.push({ code: "switch_led", value: false })
+    } else {
+      // 1. Power on if requested or if it is currently off
+      const needPowerOn = args.action === "on" || (currentStatus && !currentPower)
+      if (needPowerOn) {
+        preCommands.push({ code: "switch_led", value: true })
+      }
+
+      // 2. Determine target work mode
+      let targetMode = null
+      if (args.color) {
+        targetMode = "colour"
+      } else if (currentStatus) {
+        targetMode = currentMode || "white"
+      } else {
+        targetMode = "white"
+      }
+
+      const needModeChange = targetMode && (!currentStatus || currentMode !== targetMode)
+      if (needModeChange) {
+        preCommands.push({ code: "work_mode", value: targetMode })
+      }
+
+      // 3. Handle properties based on active mode
+      if (targetMode === "colour") {
+        // Retrieve current color components as baseline
+        let h = 0, s = 1000, v = 1000
+        const rawColor = currentStatus ? getDp("colour_data_v2") : null
+        if (rawColor) {
+          try {
+            const parsed = typeof rawColor === "string" ? JSON.parse(rawColor) : rawColor
+            if (parsed) {
+              h = parsed.h
+              s = parsed.s
+              v = parsed.v
+            }
+          } catch (e) {}
+        }
+
+        // Apply new color if requested
+        if (args.color) {
+          h = Math.round(args.color.hue)
+          s = Math.round((args.color.saturation / 100) * 1000)
+          v = Math.round((args.color.value / 100) * 1000)
+        }
+
+        // Apply new brightness to the 'v' (value) component in colour mode
+        if (args.brightness != null) {
+          v = Math.round((args.brightness / 100) * 1000)
+        }
+
+        // Send color data DP as a raw JSON object (per Tuya specifications)
+        postCommands.push({
+          code: "colour_data_v2",
+          value: { h, s, v }
+        })
+      } else {
+        // White mode: set brightness using bright_value_v2
+        if (args.brightness != null) {
+          postCommands.push({ code: "bright_value_v2", value: pctToTuya(args.brightness) })
+        }
+      }
+    }
+
+    // 4. Send commands to Tuya sequentially to avoid clashes
+    let result = null
+
+    try {
+      if (preCommands.length > 0) {
+        result = await sendDeviceCommands(deviceId, preCommands)
+        if (!isTuyaSuccess(result)) {
+          return {
+            success: false,
+            error: result?.msg || "Failed to apply power/mode commands.",
+            tuya_code: result?.code,
+          }
+        }
+        // If mode or power changed, wait a bit for device to transition before sending payload
+        if (postCommands.length > 0) {
+          await sleep(500)
+        }
+      }
+
+      if (postCommands.length > 0) {
+        result = await sendDeviceCommands(deviceId, postCommands)
+      }
     } catch (err) {
       return { success: false, error: err.message || "Failed to reach Tuya Cloud API." }
     }
 
-    if (isTuyaSuccess(result)) {
+    if (!result || isTuyaSuccess(result)) {
       return {
         success: true,
         applied: {
@@ -223,12 +306,20 @@ const getWifiLampStatus = {
         }
       : null
 
+    const mode = dp("work_mode") || "white"
+    let brightness_pct = null
+    if (mode === "colour" && color) {
+      brightness_pct = color.value
+    } else if (rawBrightness != null) {
+      brightness_pct = tuyaToPct(rawBrightness)
+    }
+
     return {
       success: true,
       status: {
         power: dp("switch_led") ? "on" : "off",
-        brightness_pct: rawBrightness != null ? tuyaToPct(rawBrightness) : null,
-        mode: dp("work_mode") || "white",
+        brightness_pct,
+        mode,
         ...(color && { color_hsv: color }),
       },
       device_id: deviceId,
