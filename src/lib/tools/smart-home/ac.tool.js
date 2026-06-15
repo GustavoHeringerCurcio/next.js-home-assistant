@@ -1,30 +1,25 @@
 import { z } from "zod"
 import { toJsonSchema } from "../shared/schema.utils.js"
 import {
-  sendDeviceCommands,
-  getDeviceStatus,
+  sendIRCommand,
+  getIRStatus,
   isTuyaSuccess,
 } from "@/lib/tuya/device-commands"
 
-// ─── Private helpers ──────────────────────────────────────────────────────────
-
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** Resolves the AC device ID from env or returns a structured error. */
-function getAcDeviceId() {
-  const deviceId = process.env.TUYA_AC_DEVICE_ID
-  if (!deviceId) {
-    throw new Error(
-      "TUYA_AC_DEVICE_ID is not set in .env. Add your AC's device ID to enable AC control."
-    )
+function getAcIRIds() {
+  const hubId = process.env.TUYA_IR_HUB_ID
+  const remoteId = process.env.TUYA_IR_AC_REMOTE_ID
+  if (!hubId) {
+    throw new Error("TUYA_IR_HUB_ID is not set in .env. Add your IR hub's device ID.")
   }
-  return deviceId
+  if (!remoteId) {
+    throw new Error("TUYA_IR_AC_REMOTE_ID is not set in .env. Add your virtual AC remote ID.")
+  }
+  return { hubId, remoteId }
 }
 
-/** 
- * Maps user-friendly mode names to Tuya Standard Instruction Set codes.
- * Based on docs/TOOL_AUTHORING.md
- */
 const MODE_MAP = {
   cool: "cold",
   heat: "hot",
@@ -33,22 +28,10 @@ const MODE_MAP = {
   auto: "auto",
 }
 
-/** Reverse map for reading status back to user-friendly names. */
 const REVERSE_MODE_MAP = Object.fromEntries(
   Object.entries(MODE_MAP).map(([k, v]) => [v, k])
 )
 
-// ─── Tool: control_ac ─────────────────────────────────────────────────────────
-
-/**
- * control_ac
- *
- * Sends commands to the AC via Tuya Cloud:
- *   - Power on/off (switch)
- *   - Temperature (temp_set)
- *   - Mode (mode)
- *   - Fan speed (fan_speed_enum)
- */
 const controlAc = {
   name: "control_ac",
   description:
@@ -85,9 +68,11 @@ const controlAc = {
     fan_speed: z.enum(["low", "mid", "high", "auto"]).optional(),
   }),
   async execute(args) {
-    let deviceId
+    let hubId, remoteId
     try {
-      deviceId = getAcDeviceId()
+      const ids = getAcIRIds()
+      hubId = ids.hubId
+      remoteId = ids.remoteId
     } catch (err) {
       return { success: false, error: err.message }
     }
@@ -99,100 +84,53 @@ const controlAc = {
       }
     }
 
-    // 1. Fetch current status for state-aware sequential control
-    let currentStatus = null
-    try {
-      const statusRes = await getDeviceStatus(deviceId)
-      if (isTuyaSuccess(statusRes) && Array.isArray(statusRes.result)) {
-        currentStatus = statusRes.result
-      }
-    } catch (err) {
-      console.warn("Failed to fetch device status for sequential control:", err)
+    const commands = []
+
+    if (args.power) {
+      commands.push({ code: "power", value: args.power === "on" ? 1 : 0 })
+    }
+    if (args.temperature != null) {
+      commands.push({ code: "temp_set", value: args.temperature })
+    }
+    if (args.mode) {
+      commands.push({ code: "mode", value: MODE_MAP[args.mode] })
+    }
+    if (args.fan_speed) {
+      commands.push({ code: "fan_speed_enum", value: args.fan_speed })
     }
 
-    const getDp = (code) => currentStatus?.find((d) => d.code === code)?.value
-    const currentPower = currentStatus ? getDp("switch") : null
-
-    const preCommands = []
-    const postCommands = []
-
-    if (args.power === "off") {
-      preCommands.push({ code: "switch", value: false })
-    } else {
-      const needPowerOn = args.power === "on" || (currentStatus != null && currentPower === false)
-      if (needPowerOn) {
-        preCommands.push({ code: "switch", value: true })
-      }
-
-      if (args.temperature != null) {
-        postCommands.push({ code: "temp_set", value: args.temperature })
-      }
-      if (args.mode) {
-        postCommands.push({ code: "mode", value: MODE_MAP[args.mode] })
-      }
-      if (args.fan_speed) {
-        postCommands.push({ code: "fan_speed_enum", value: args.fan_speed })
-      }
-    }
-
-    // 2. Send commands to Tuya sequentially to avoid clashes
-    let result = null
-
+    let lastResult = null
     try {
-      if (preCommands.length > 0) {
-        result = await sendDeviceCommands(deviceId, preCommands)
-        if (!isTuyaSuccess(result)) {
+      for (let i = 0; i < commands.length; i++) {
+        const cmd = commands[i]
+        if (i > 0) await sleep(500)
+        lastResult = await sendIRCommand(hubId, remoteId, cmd.code, cmd.value)
+        if (!isTuyaSuccess(lastResult)) {
           return {
             success: false,
-            error: result?.msg || "Failed to apply power commands.",
-            tuya_code: result?.code,
+            step: i,
+            error: lastResult?.msg || `Failed to send IR command "${cmd.code}".`,
+            tuya_code: lastResult?.code,
           }
         }
-        if (postCommands.length > 0) {
-          await sleep(500)
-        }
-      }
-
-      if (postCommands.length > 0) {
-        result = await sendDeviceCommands(deviceId, postCommands)
       }
     } catch (err) {
       return { success: false, error: err.message || "Failed to reach Tuya Cloud API." }
     }
 
-    if (!result || isTuyaSuccess(result)) {
-      const applied = {}
-      if (args.power) {
-        applied.power = args.power
-      } else if (preCommands.some((c) => c.code === "switch" && c.value === true)) {
-        applied.power = "on"
-      }
-      if (args.temperature != null) applied.temperature = args.temperature
-      if (args.mode) applied.mode = args.mode
-      if (args.fan_speed) applied.fan_speed = args.fan_speed
-
-      return {
-        success: true,
-        applied,
-        device_id: deviceId,
-      }
-    }
-
     return {
-      success: false,
-      error: result?.msg || "Tuya API returned a failure response.",
-      tuya_code: result?.code,
+      success: true,
+      applied: {
+        ...(args.power && { power: args.power }),
+        ...(args.temperature != null && { temperature: args.temperature }),
+        ...(args.mode && { mode: args.mode }),
+        ...(args.fan_speed && { fan_speed: args.fan_speed }),
+      },
+      device_id: hubId,
     }
   },
 }
 
-// ─── Tool: get_ac_status ─────────────────────────────────────────────────────
-
-/**
- * get_ac_status
- *
- * Reads the current state of the AC from Tuya Cloud.
- */
 const getAcStatus = {
   name: "get_ac_status",
   description:
@@ -200,16 +138,18 @@ const getAcStatus = {
   parameters: toJsonSchema({}),
   schema: z.object({}),
   async execute() {
-    let deviceId
+    let hubId, remoteId
     try {
-      deviceId = getAcDeviceId()
+      const ids = getAcIRIds()
+      hubId = ids.hubId
+      remoteId = ids.remoteId
     } catch (err) {
       return { success: false, error: err.message }
     }
 
     let result
     try {
-      result = await getDeviceStatus(deviceId)
+      result = await getIRStatus(hubId, remoteId)
     } catch (err) {
       return { success: false, error: err.message || "Failed to reach Tuya Cloud API." }
     }
@@ -225,22 +165,21 @@ const getAcStatus = {
     const dps = Array.isArray(result.result) ? result.result : []
     const dp = (code) => dps.find((d) => d.code === code)?.value
 
+    const rawPower = dp("power")
     const rawMode = dp("mode")
     const mode = REVERSE_MODE_MAP[rawMode] || rawMode
 
     return {
       success: true,
       status: {
-        power: dp("switch") ? "on" : "off",
+        power: rawPower === 1 || rawPower === true ? "on" : "off",
         temperature: dp("temp_set"),
         mode: mode,
         fan_speed: dp("fan_speed_enum"),
       },
-      device_id: deviceId,
+      device_id: hubId,
     }
   },
 }
-
-// ─── Exports ──────────────────────────────────────────────────────────────────
 
 export const tools = [controlAc, getAcStatus]

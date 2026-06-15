@@ -49,3 +49,42 @@ export async function getDeviceStatus(deviceId) {
 export function isTuyaSuccess(result) {
   return result?.result === true || result?.success === true
 }
+
+// ─── Infrared (IR Blaster) helpers ─────────────────────────────────────────
+
+/**
+ * Send a single command to a virtual IR remote (e.g., AC, TV) through the
+ * Tuya IR hub. Each command is sent individually since IR remotes don't
+ * support batch commands.
+ *
+ * @param {string} hubId - Tuya IR hub device ID
+ * @param {string} remoteId - Virtual remote ID for the target device
+ * @param {string} code - Command code (e.g. "power", "temp_set", "mode")
+ * @param {unknown} value - Command value (e.g. 1 for on, 0 for off)
+ * @returns {Promise<object>} Raw Tuya API response
+ */
+export async function sendIRCommand(hubId, remoteId, code, value) {
+  const ctx = getTuyaContext()
+  const result = await ctx.request({
+    path: `/v2.0/infrareds/${hubId}/air-conditioners/${remoteId}/command`,
+    method: "POST",
+    body: { code, value },
+  })
+  return result
+}
+
+/**
+ * Get the current status of a virtual IR AC remote.
+ *
+ * @param {string} hubId - Tuya IR hub device ID
+ * @param {string} remoteId - Virtual remote ID
+ * @returns {Promise<object>} Remote status object from Tuya Cloud
+ */
+export async function getIRStatus(hubId, remoteId) {
+  const ctx = getTuyaContext()
+  const result = await ctx.request({
+    path: `/v2.0/infrareds/${hubId}/air-conditioners/${remoteId}/status`,
+    method: "GET",
+  })
+  return result
+}

@@ -13,6 +13,30 @@ function normalizeMessages(messages = []) {
     }))
 }
 
+/**
+ * Extract text from a Responses API response by walking output items.
+ * More robust than response.output_text which can return empty string
+ * even when text exists.
+ */
+function extractResponseText(response) {
+  if (!response?.output) return ""
+  for (const item of response.output) {
+    if (item.type === "message") {
+      if (typeof item.content === "string") {
+        return item.content
+      }
+      if (Array.isArray(item.content)) {
+        for (const part of item.content) {
+          if (part.type === "text" && part.text) {
+            return part.text
+          }
+        }
+      }
+    }
+  }
+  return ""
+}
+
 function buildMemoryContext(memories) {
   if (!memories.length) {
     return "No durable memories were retrieved for this turn."
@@ -77,6 +101,7 @@ ${buildMemoryContext(memories)}`
 
   let response
   let finalText = ""
+  let invokedAnyTool = false
 
   for (let round = 0; round < AGENT_CONFIG.maxToolRounds; round += 1) {
     response = await client.responses.create({
@@ -92,7 +117,7 @@ ${buildMemoryContext(memories)}`
     const functionCalls = (response.output || []).filter((item) => item.type === "function_call")
 
     if (!functionCalls.length) {
-      finalText = response.output_text || ""
+      finalText = extractResponseText(response)
       break
     }
 
@@ -109,10 +134,10 @@ ${buildMemoryContext(memories)}`
 
       try {
         result = await runTool(functionCall.name, parsedArgs)
+        invokedAnyTool = true
       } catch (error) {
-        result = {
-          error: error.message,
-        }
+        result = { error: error.message }
+        invokedAnyTool = true
       }
 
       input.push({
@@ -123,12 +148,12 @@ ${buildMemoryContext(memories)}`
     }
   }
 
-  if (!finalText && response?.output_text) {
-    finalText = response.output_text
+  if (!finalText) {
+    finalText = extractResponseText(response)
   }
 
   if (!finalText) {
-    finalText = "I finished the tool loop, but the model did not return visible text."
+    finalText = invokedAnyTool ? "Done!" : "I finished the tool loop, but the model did not return visible text."
   }
 
   await saveMessage({
