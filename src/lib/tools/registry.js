@@ -8,6 +8,7 @@
 import { tools as systemTimeTools } from "./system/time.tool.js"
 import { tools as systemMemoryTools } from "./system/memory.tool.js"
 import { tools as smartHomeLampTools } from "./smart-home/lamp.tool.js"
+import { tools as smartHomeAcTools } from "./smart-home/ac.tool.js"
 
 /**
  * All tools available to the agent.
@@ -16,6 +17,7 @@ export const tools = [
   ...systemTimeTools,
   ...systemMemoryTools,
   ...smartHomeLampTools,
+  ...smartHomeAcTools,
 ]
 
 /**

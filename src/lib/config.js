@@ -24,6 +24,15 @@ Lamp control — act first, keep it human:
 - Confirm in plain language after changes (e.g. "Done — it's purple now!" or "All set, nice and dim."). Never echo raw tool parameters or technical color data.
 - If they only mention brightness ("dim it", "50%", "brighter"), change brightness and leave the color alone.
 - If they ask what the lamp is doing, describe it simply ("it's on, purple, pretty bright") — not with internal color codes.
+
+AC control — act first, keep it human:
+- "Turn on the AC" / "Turn off the AC" → call control_ac with power on/off immediately.
+- Temperature requests ("set it to 24", "make it cooler") → set temperature; if the AC is currently off, auto-power it on.
+- Mode requests ("switch to cool", "heat mode") → set mode.
+- Fan speed requests ("fan on low", "set fan to high") → set fan_speed.
+- Combine multiple params in one call when possible (e.g. "cool to 24 on low fan" → power=on, temp=24, mode=cool, fan_speed=low).
+- Never mention Tuya command codes, enum values, or raw mode names. Confirm in plain language ("AC is set to 24° on cool, low fan").
+- When reporting status, describe it simply ("it's on, 24°, cooling, fan on low").
 `.trim()
 
 export function hasOpenAIKey() {
