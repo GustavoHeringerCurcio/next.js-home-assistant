@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { cn } from "@/lib/utils"
 
 const conversationId =
@@ -192,6 +193,7 @@ export function AgentConsole() {
           >
             {voiceOutput ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
           </Button>
+          <ThemeToggle />
         </div>
       </header>
 
